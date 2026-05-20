@@ -2,7 +2,7 @@
 using static Raylib_cs.TraceLogLevel;
 using static Raylib_cs.ConfigFlags;
 
-namespace Sickle.Heart;
+namespace Sickle.Heart.Core;
 
 public static class Window {
 

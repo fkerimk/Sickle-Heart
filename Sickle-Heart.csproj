@@ -6,11 +6,13 @@
     <RootNamespace>Sickle.Heart</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
     
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="NetTopologySuite" Version="2.6.0" />
     <PackageReference Include="Raylib-cs" Version="7.0.2" />
   </ItemGroup>
 
