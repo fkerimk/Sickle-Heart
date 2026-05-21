@@ -12,6 +12,10 @@ namespace Sickle.Heart.Core;
 
 public static class Render {
 
+    private const float MapTextureScale = 1f;
+    private static Texture2D? _mapTexture;
+    private static Material? _mapMaterial;
+
     public static Camera2D Cam2D = new() {
         
         Offset = Vector2.Zero,
@@ -123,6 +127,110 @@ public static class Render {
 
     public static void Map(Map.Map map) {
         
+        GetMapTexture();
+
+        foreach (var vertices in map.Parts.Select(part => part.Vertices).Where(vertices => vertices.Count >= 3)) {
+            
+            DrawTexturedShape(vertices);
+        }
+    }
+
+    private static Texture2D GetMapTexture() {
+
+        if (_mapTexture.HasValue)
+            return _mapTexture.Value;
+
+        var texture = Resources.GetResource<Texture2D>("texture", "grid_checker.png");
+
+        SetTextureFilter(texture, TextureFilter.Point);
+        SetTextureWrap(texture, TextureWrap.Repeat);
+
+        _mapTexture = texture;
+
+        return texture;
+    }
+
+    private static Material GetMapMaterial() {
+
+        if (_mapMaterial.HasValue)
+            return _mapMaterial.Value;
+
+        var material = LoadMaterialDefault();
         
+        SetMaterialTexture(ref material, MaterialMapIndex.Albedo, GetMapTexture());
+        
+        _mapMaterial = material;
+
+        return material;
+    }
+
+    private static void DrawTexturedShape(List<Vector2> vertices) {
+
+        var geometry = Triangulate(vertices);
+        if (geometry is null || geometry.IsEmpty) return;
+
+        var mesh = BuildTexturedMesh(geometry);
+        UploadMesh(ref mesh, false);
+        DrawMesh(mesh, GetMapMaterial(), Matrix4x4.Identity);
+        UnloadMesh(mesh);
+    }
+
+    private static Mesh BuildTexturedMesh(Geometry geometry) {
+
+        var vertexCount = geometry.NumGeometries * 3;
+        var mesh = new Mesh(vertexCount, geometry.NumGeometries);
+
+        mesh.AllocVertices();
+        mesh.AllocTexCoords();
+        mesh.AllocNormals();
+
+        var positions = mesh.VerticesAs<float>();
+        var texCoords = mesh.TexCoordsAs<float>();
+        var normals = mesh.NormalsAs<float>();
+
+        var vertexIndex = 0;
+
+        for (var i = 0; i < geometry.NumGeometries; i++) {
+
+            var coords = geometry.GetGeometryN(i).Coordinates;
+            if (coords.Length < 3) continue;
+
+            for (var j = 0; j < 3; j++) {
+
+                var x = (float)coords[j].X;
+                var z = (float)coords[j].Y;
+
+                positions[vertexIndex * 3 + 0] = x;
+                positions[vertexIndex * 3 + 1] = 0f;
+                positions[vertexIndex * 3 + 2] = z;
+
+                texCoords[vertexIndex * 2 + 0] = x * MapTextureScale;
+                texCoords[vertexIndex * 2 + 1] = z * MapTextureScale;
+
+                normals[vertexIndex * 3 + 0] = 0f;
+                normals[vertexIndex * 3 + 1] = 1f;
+                normals[vertexIndex * 3 + 2] = 0f;
+
+                vertexIndex++;
+            }
+        }
+
+        return mesh;
+    }
+
+    private static Geometry? Triangulate(List<Vector2> vertices) {
+
+        if (vertices.Count < 3) return null;
+
+        var gf = NtsGeometryServices.Instance.CreateGeometryFactory();
+        var coords = vertices
+            .Select(v => new Coordinate(v.X, v.Y))
+            .Append(new Coordinate(vertices[0].X, vertices[0].Y))
+            .ToArray();
+
+        var poly = gf.CreatePolygon(coords);
+        var geom = poly.IsValid ? poly : GeometryFixer.Fix(poly);
+
+        return geom.IsEmpty ? null : PolygonTriangulator.Triangulate(geom);
     }
 }
