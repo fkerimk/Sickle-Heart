@@ -13,6 +13,7 @@ public static partial class Render {
     private const float WallHeight = 5f;
 
     private static readonly Lazy<Material> FloorMaterial = CreateMaterial("grid_orange.png");
+    private static readonly Lazy<Material> CeilingMaterial = CreateMaterial("grid_gray.png");
     private static readonly Lazy<Material> WallMaterial = CreateMaterial("grid_darkgray.png");
 
     public static void Map(Map.Map map) {
@@ -20,6 +21,7 @@ public static partial class Render {
         foreach (var vertices in map.Parts.Select(part => part.Vertices).Where(vertices => vertices.Count >= 3)) {
 
             DrawMesh(BuildFloorMesh(vertices), FloorMaterial.Value);
+            DrawMesh(BuildCeilingMesh(vertices), CeilingMaterial.Value);
             DrawMesh(BuildWallMesh(vertices), WallMaterial.Value);
         }
     }
@@ -86,6 +88,32 @@ public static partial class Render {
 
             WriteTriangle(buffer, normal, (bottomStart, new(0f, WallHeight)), (topStart, Vector2.Zero), (topEnd, new(u, 0f)));
             WriteTriangle(buffer, normal, (bottomStart, new(0f, WallHeight)), (topEnd, new(u, 0f)), (bottomEnd, new(u, WallHeight)));
+        }
+
+        return BuildMesh(buffer.WrittenSpan);
+    }
+
+    private static Mesh BuildCeilingMesh(List<Vector2> vertices) {
+
+        var tess = Tessellate(vertices);
+        if (tess.ElementCount == 0)
+            return new Mesh();
+
+        using var buffer = new ArrayPoolBufferWriter<VertexData>(tess.ElementCount * 3);
+
+        for (var i = 0; i < tess.ElementCount; i++) {
+
+            var a = tess.Vertices[tess.Elements[i * 3]].Position;
+            var b = tess.Vertices[tess.Elements[i * 3 + 1]].Position;
+            var c = tess.Vertices[tess.Elements[i * 3 + 2]].Position;
+
+            WriteTriangle(
+                buffer,
+                -Vector3.UnitY,
+                (new Vector3(a.X, WallHeight, a.Y), new Vector2(a.X * TextureScale, a.Y * TextureScale)),
+                (new Vector3(c.X, WallHeight, c.Y), new Vector2(c.X * TextureScale, c.Y * TextureScale)),
+                (new Vector3(b.X, WallHeight, b.Y), new Vector2(b.X * TextureScale, b.Y * TextureScale))
+            );
         }
 
         return BuildMesh(buffer.WrittenSpan);
