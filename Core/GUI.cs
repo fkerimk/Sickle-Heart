@@ -5,7 +5,7 @@ using static rlImGui_cs.rlImGui;
 
 namespace Sickle.Heart.Core;
 
-public static class Gui {
+public static unsafe class Gui {
     
     private static ImGuiIOPtr _io;
 
@@ -18,6 +18,7 @@ public static class Gui {
         rlImGui.Setup();
 
         _io = ImGui.GetIO();
+        _io.NativePtr->IniFilename = null;
 
         SetupFonts();
     }
