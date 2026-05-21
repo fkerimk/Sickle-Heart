@@ -10,7 +10,7 @@ namespace Sickle.Heart.Core;
 
 public static partial class Render {
 
-    private static readonly Dictionary<string, Lazy<Material>> Materials = [];
+    private static readonly Dictionary<string, Lazy<MaterialResource>> Materials = [];
 
     public static void Map(Map.Map map) {
 
@@ -47,13 +47,23 @@ public static partial class Render {
         }
     }
 
-    private static void DrawMesh(Mesh mesh, Material material, Surface surface) {
+    private static void DrawMesh(Mesh mesh, MaterialResource materialResource, Surface surface) {
 
         if (mesh.VertexCount == 0) return;
 
-        var texture = Resources.GetResource<Texture2D>("texture", surface.Texture);
-        SetTextureWrap(texture, surface.Wrap);
-        SetMaterialTexture(ref material, MaterialMapIndex.Albedo, texture);
+        var material = materialResource.Material;
+
+        if (!materialResource.UsesCubemap) {
+            
+            var texture = Resources.GetResource<Texture2D>("texture", surface.Texture);
+            
+            SetTextureWrap(texture, surface.Wrap);
+            SetMaterialTexture(ref material, MaterialMapIndex.Albedo, texture);
+        }
+
+        if (materialResource.CameraPositionLocation >= 0)
+            SetShaderValue(material.Shader, materialResource.CameraPositionLocation, Cam3D.Position, ShaderUniformDataType.Vec3);
+
         UploadMesh(ref mesh, false);
         Raylib.DrawMesh(mesh, material, Matrix4x4.Identity);
         UnloadMesh(mesh);
@@ -311,24 +321,57 @@ public static partial class Render {
         return value / tileSize;
     }
 
-    private static Material GetMaterial(Surface surface) =>
+    private static MaterialResource GetMaterial(Surface surface) =>
         Materials.GetValueOrDefault(surface.Texture)?.Value ?? (Materials[surface.Texture] = CreateMaterial(surface.Texture)).Value;
 
-    private static Lazy<Material> CreateMaterial(string textureName) => new(() => {
+    private static unsafe Lazy<MaterialResource> CreateMaterial(string textureName) => new(() => {
         
         var material = LoadMaterialDefault();
-        var texture = Resources.GetResource<Texture2D>("texture", textureName);
+        var shaderName = ResolveShaderName(textureName);
+        var shader = Resources.GetResource<Shader>("shader", shaderName);
+        var usesCubemap = shaderName == "sky";
 
-        SetTextureFilter(texture, TextureFilter.Point);
-        SetMaterialTexture(ref material, MaterialMapIndex.Albedo, texture);
+        if (usesCubemap) {
 
-        return material;
+            var cubemap = Resources.GetCubemap("texture", textureName);
+            material.Maps[(int)MaterialMapIndex.Cubemap].Texture = cubemap;
+
+            var environmentMapLocation = GetShaderLocation(shader, "environmentMap");
+            if (environmentMapLocation >= 0)
+                SetShaderValue(shader, environmentMapLocation, (int)MaterialMapIndex.Cubemap, ShaderUniformDataType.Int);
+            
+        } else {
+            
+            var texture = Resources.GetResource<Texture2D>("texture", textureName);
+            SetTextureFilter(texture, TextureFilter.Point);
+            
+            SetMaterialTexture(ref material, MaterialMapIndex.Albedo, texture);
+        }
+
+        material.Shader = shader;
+
+        return new MaterialResource {
+            
+            Material = material,
+            CameraPositionLocation = GetShaderLocation(shader, "uCamPos"),
+            UsesCubemap = usesCubemap
+        };
     });
+
+    private static string ResolveShaderName(string textureName) {
+
+        var fileName = Path.GetFileNameWithoutExtension(textureName);
+        var separatorIndex = fileName.IndexOf('_');
+        var shaderName = separatorIndex > 0 ? fileName[..separatorIndex] : fileName;
+
+        return Resources.HasResourceFile("shader", $"{shaderName}.fs") && Resources.HasResourceFile("shader", $"{shaderName}.vs")
+            ? shaderName
+            : "default";
+    }
 
     private static Mesh BuildMesh(ReadOnlySpan<VertexData> vertices) {
 
-        if (vertices.IsEmpty)
-            return new Mesh();
+        if (vertices.IsEmpty) return new Mesh();
 
         var mesh = new Mesh(vertices.Length, vertices.Length / 3);
         mesh.AllocVertices();
@@ -340,6 +383,7 @@ public static partial class Render {
         var normals = mesh.NormalsAs<float>();
 
         for (var i = 0; i < vertices.Length; i++) {
+            
             var vertex = vertices[i];
 
             positions[i * 3] = vertex.Position.X;
@@ -374,4 +418,11 @@ public static partial class Render {
     }
 
     private readonly record struct VertexData(Vector3 Position, Vector2 Uv, Vector3 Normal);
+
+    private sealed class MaterialResource {
+        
+        public required Material Material;
+        public required int CameraPositionLocation;
+        public required bool UsesCubemap;
+    }
 }
