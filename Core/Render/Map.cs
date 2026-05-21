@@ -22,8 +22,8 @@ public static partial class Render {
             
             var wallDirection = GetWallDirection(map, i);
 
-            DrawMesh(BuildFloorMesh(vertices, part.YOffset, part.Floor), GetMaterial(part.Floor), part.Floor);
-            DrawMesh(BuildCeilingMesh(vertices, part.YOffset + part.Height, part.Ceil), GetMaterial(part.Ceil), part.Ceil);
+            DrawMesh(BuildFloorMesh(vertices, part.YOffset, wallDirection, part.Floor), GetMaterial(part.Floor), part.Floor);
+            DrawMesh(BuildCeilingMesh(vertices, part.YOffset + part.Height, wallDirection, part.Ceil), GetMaterial(part.Ceil), part.Ceil);
             DrawMesh(BuildWallMesh(map, i, wallDirection), GetMaterial(part.Wall), part.Wall);
         }
     }
@@ -40,7 +40,7 @@ public static partial class Render {
         UnloadMesh(mesh);
     }
 
-    private static Mesh BuildFloorMesh(List<Vector2> vertices, float yOffset, Map.Surface surface) {
+    private static Mesh BuildFloorMesh(List<Vector2> vertices, float yOffset, float wallDirection, Map.Surface surface) {
 
         var tess = Tessellate(vertices);
         
@@ -50,15 +50,31 @@ public static partial class Render {
         using var buffer = new ArrayPoolBufferWriter<VertexData>(tess.ElementCount * 3);
         var bounds = GetBounds(vertices);
 
-        for (var i = 0; i < tess.ElementCount * 3; i++) {
+        for (var i = 0; i < tess.ElementCount; i++) {
 
-            var vertex = tess.Vertices[tess.Elements[i]].Position;
-            
-            WriteVertex(
+            var a = tess.Vertices[tess.Elements[i * 3]].Position;
+            var b = tess.Vertices[tess.Elements[i * 3 + 1]].Position;
+            var c = tess.Vertices[tess.Elements[i * 3 + 2]].Position;
+
+            if (wallDirection > 0f) {
+                
+                WriteTriangle(
+                    buffer,
+                    Vector3.UnitY,
+                    (new Vector3(a.X, yOffset, a.Y), GetHorizontalUv(new Vector2(a.X, a.Y), bounds, surface)),
+                    (new Vector3(b.X, yOffset, b.Y), GetHorizontalUv(new Vector2(b.X, b.Y), bounds, surface)),
+                    (new Vector3(c.X, yOffset, c.Y), GetHorizontalUv(new Vector2(c.X, c.Y), bounds, surface))
+                );
+
+                continue;
+            }
+
+            WriteTriangle(
                 buffer,
-                new Vector3(vertex.X, yOffset, vertex.Y),
-                GetHorizontalUv(new Vector2(vertex.X, vertex.Y), bounds, surface),
-                Vector3.UnitY
+                Vector3.UnitY,
+                (new Vector3(a.X, yOffset, a.Y), GetHorizontalUv(new Vector2(a.X, a.Y), bounds, surface)),
+                (new Vector3(c.X, yOffset, c.Y), GetHorizontalUv(new Vector2(c.X, c.Y), bounds, surface)),
+                (new Vector3(b.X, yOffset, b.Y), GetHorizontalUv(new Vector2(b.X, b.Y), bounds, surface))
             );
         }
 
@@ -246,13 +262,30 @@ public static partial class Render {
 
     private static float GetWallDirection(Map.Map map, int partIndex) {
 
-        var sample = map.Parts[partIndex].Vertices[0];
-        var depth = map.Parts.Where((_, i) => i != partIndex).Count(t => Util.IsPointInPolygon(sample, t.Vertices));
+        var sample = GetInteriorSample(map.Parts[partIndex].Vertices);
+        var isInsideAnotherPart = map.Parts.Where((_, i) => i != partIndex).Any(t => Util.IsPointInPolygon(sample, t.Vertices));
 
-        return depth % 2 == 0 ? 1f : -1f;
+        return isInsideAnotherPart ? -1f : 1f;
     }
 
-    private static Mesh BuildCeilingMesh(List<Vector2> vertices, float height, Map.Surface surface) {
+    private static Vector2 GetInteriorSample(List<Vector2> vertices) {
+
+        var tess = Tessellate(vertices);
+
+        if (tess.ElementCount == 0)
+            return vertices[0];
+
+        var a = tess.Vertices[tess.Elements[0]].Position;
+        var b = tess.Vertices[tess.Elements[1]].Position;
+        var c = tess.Vertices[tess.Elements[2]].Position;
+
+        return new Vector2(
+            (a.X + b.X + c.X) / 3f,
+            (a.Y + b.Y + c.Y) / 3f
+        );
+    }
+
+    private static Mesh BuildCeilingMesh(List<Vector2> vertices, float height, float wallDirection, Map.Surface surface) {
 
         var tess = Tessellate(vertices);
         
@@ -269,12 +302,25 @@ public static partial class Render {
             var b = tess.Vertices[tess.Elements[i * 3 + 1]].Position;
             var c = tess.Vertices[tess.Elements[i * 3 + 2]].Position;
 
+            if (wallDirection > 0f) {
+                
+                WriteTriangle(
+                    buffer,
+                    -Vector3.UnitY,
+                    (new Vector3(a.X, height, a.Y), GetHorizontalUv(new Vector2(a.X, a.Y), bounds, surface)),
+                    (new Vector3(c.X, height, c.Y), GetHorizontalUv(new Vector2(c.X, c.Y), bounds, surface)),
+                    (new Vector3(b.X, height, b.Y), GetHorizontalUv(new Vector2(b.X, b.Y), bounds, surface))
+                );
+
+                continue;
+            }
+
             WriteTriangle(
                 buffer,
                 -Vector3.UnitY,
                 (new Vector3(a.X, height, a.Y), GetHorizontalUv(new Vector2(a.X, a.Y), bounds, surface)),
-                (new Vector3(c.X, height, c.Y), GetHorizontalUv(new Vector2(c.X, c.Y), bounds, surface)),
-                (new Vector3(b.X, height, b.Y), GetHorizontalUv(new Vector2(b.X, b.Y), bounds, surface))
+                (new Vector3(b.X, height, b.Y), GetHorizontalUv(new Vector2(b.X, b.Y), bounds, surface)),
+                (new Vector3(c.X, height, c.Y), GetHorizontalUv(new Vector2(c.X, c.Y), bounds, surface))
             );
         }
 
