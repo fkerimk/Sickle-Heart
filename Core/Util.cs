@@ -52,4 +52,22 @@ public static class Util {
         
         return true;
     }
+
+    public static bool IsPointInPolygon(Vector2 point, List<Vector2> vertices) {
+
+        var inside = false;
+
+        for (var i = 0; i < vertices.Count; i++) {
+            var a = vertices[i];
+            var b = vertices[(i + 1) % vertices.Count];
+
+            var intersects = a.Y > point.Y != b.Y > point.Y
+                && point.X < (b.X - a.X) * (point.Y - a.Y) / (b.Y - a.Y + float.Epsilon) + a.X;
+
+            if (intersects)
+                inside = !inside;
+        }
+
+        return inside;
+    }
 }

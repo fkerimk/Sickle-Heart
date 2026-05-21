@@ -35,5 +35,6 @@ public static class Colors {
     public static readonly Color GridBottom = new( 40,  40,  40, 255);
     public static readonly Color GridTop    = new( 60,  60,  60, 255);
     public static readonly Color Part       = new(255, 255, 255,   5);
+    public static readonly Color PartHover  = new(255, 165,   0,  10);
     public static readonly Color PartFail   = new(255,   0,   0,   5);
 }

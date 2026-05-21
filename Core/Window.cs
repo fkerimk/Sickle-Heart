@@ -6,6 +6,9 @@ namespace Sickle.Heart.Core;
 
 public static class Window {
 
+    public static float Width => GetScreenWidth();
+    public static float Height => GetScreenHeight();
+    
     public static void Open(int width = 1280, int height = 720, string title = "Sickle") {
         
         SetTraceLogLevel(Error);
