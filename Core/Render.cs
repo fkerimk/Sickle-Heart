@@ -20,6 +20,15 @@ public static class Render {
         Zoom = 60
     };
 
+    public static Camera3D Cam3D = new() {
+        
+        Position = Vector3.Zero,
+        Target = Vector3.Zero,
+        Up = Vector3.UnitY,
+        FovY = 90,
+        Projection = CameraProjection.Perspective
+    };
+
     public static void Start() {
         
         BeginDrawing();
@@ -34,13 +43,22 @@ public static class Render {
     public static void Begin2D() {
 
         Cam2D.Offset = new Vector2(GetScreenWidth() * 0.5f, GetScreenHeight() * 0.5f);
-        
         BeginMode2D(Cam2D);
     }
 
     public static void End2D() {
         
         EndMode2D();
+    }
+    
+    public static void Begin3D() {
+
+        BeginMode3D(Cam3D);
+    }
+    
+    public static void End3D() {
+        
+        EndMode3D();
     }
 
     public static void Line(Vector2 start, Vector2 end, Color color) => DrawLineV(start, end, color);
@@ -101,5 +119,10 @@ public static class Render {
 
         for (var y = startY; y <= endY; y += spacing)
             DrawLineV(topLeft with { Y = y }, bottomRight with { Y = y }, color);
+    }
+
+    public static void Map(Map.Map map) {
+        
+        
     }
 }

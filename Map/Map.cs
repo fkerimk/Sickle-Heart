@@ -26,7 +26,7 @@ public class Map {
     
     public bool TryFindPointOnLine(out Vector2 point, out int partIndex, out int insertIndex) {
         
-        const float LineSelectDistance = 0.15f;
+        const float lineSelectDistance = 0.15f;
         
         point = Vector2.Zero;
         partIndex = -1;
@@ -44,7 +44,7 @@ public class Map {
                 if (!Util.TryGetNextVertexIndex(vertices, j, out var next))
                     continue;
 
-                if (!Util.TryFindPointOnLine(Input.MouseWorldPos, vertices[j], vertices[next], LineSelectDistance, out point))
+                if (!Util.TryFindPointOnLine(Input.MouseWorldPos, vertices[j], vertices[next], lineSelectDistance, out point))
                     continue;
 
                 partIndex = i;
