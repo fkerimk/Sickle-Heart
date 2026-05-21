@@ -3,6 +3,7 @@ using System.Numerics;
 using CommunityToolkit.HighPerformance.Buffers;
 using LibTessDotNet;
 using Raylib_cs;
+using Sickle.Heart.Map;
 using static Raylib_cs.Raylib;
 
 namespace Sickle.Heart.Core;
@@ -20,7 +21,7 @@ public static partial class Render {
             var vertices = part.Vertices;
             if (vertices.Count < 3) continue;
             
-            var wallDirection = GetWallDirection(map, i);
+            var wallDirection = Geometry.GetWallDirection(map, i);
 
             DrawMesh(BuildFloorMesh(vertices, part.YOffset, wallDirection, part.Floor), GetMaterial(part.Floor), part.Floor);
             DrawMesh(BuildCeilingMesh(vertices, part.YOffset + part.Height, wallDirection, part.Ceil), GetMaterial(part.Ceil), part.Ceil);
@@ -28,7 +29,25 @@ public static partial class Render {
         }
     }
 
-    private static void DrawMesh(Mesh mesh, Material material, Map.Surface surface) {
+    public static void PartOutline(Part part, Color color) {
+
+        if (part.Vertices.Count < 2)
+            return;
+
+        var bottom = part.YOffset;
+        var top = part.YOffset + part.Height;
+
+        for (var i = 0; i < part.Vertices.Count; i++) {
+            var start = part.Vertices[i];
+            var end = part.Vertices[(i + 1) % part.Vertices.Count];
+
+            DrawLine3D(new Vector3(start.X, bottom, start.Y), new Vector3(end.X, bottom, end.Y), color);
+            DrawLine3D(new Vector3(start.X, top, start.Y), new Vector3(end.X, top, end.Y), color);
+            DrawLine3D(new Vector3(start.X, bottom, start.Y), new Vector3(start.X, top, start.Y), color);
+        }
+    }
+
+    private static void DrawMesh(Mesh mesh, Material material, Surface surface) {
 
         if (mesh.VertexCount == 0) return;
 
@@ -40,7 +59,7 @@ public static partial class Render {
         UnloadMesh(mesh);
     }
 
-    private static Mesh BuildFloorMesh(List<Vector2> vertices, float yOffset, float wallDirection, Map.Surface surface) {
+    private static Mesh BuildFloorMesh(List<Vector2> vertices, float yOffset, float wallDirection, Surface surface) {
 
         var tess = Tessellate(vertices);
         
@@ -104,14 +123,14 @@ public static partial class Render {
             var normal2D = Vector2.Normalize(new Vector2(-delta.Y, delta.X) * inward);
             var normal = new Vector3(normal2D.X, 0f, normal2D.Y);
 
-            foreach (var face in GetVisibleWallFaces(map, partIndex, start, end, bottom, top))
+            foreach (var face in Geometry.GetVisibleWallFaces(map, partIndex, start, end, bottom, top))
                 WriteWallSegment(buffer, start, end, face.From, face.To, inward, normal, face.Bottom, face.Top, part.Wall);
         }
 
         return BuildMesh(buffer.WrittenSpan);
     }
 
-    private static void WriteWallSegment(ArrayPoolBufferWriter<VertexData> buffer, Vector2 edgeStart, Vector2 edgeEnd, float from, float to, float inward, Vector3 normal, float bottom, float top, Map.Surface surface) {
+    private static void WriteWallSegment(ArrayPoolBufferWriter<VertexData> buffer, Vector2 edgeStart, Vector2 edgeEnd, float from, float to, float inward, Vector3 normal, float bottom, float top, Surface surface) {
 
         if (to - from <= 0.0001f)
             return;
@@ -137,155 +156,7 @@ public static partial class Render {
         WriteTriangle(buffer, normal, (bottomStart, uvBottomStart), (topEnd, uvTopEnd), (bottomEnd, uvBottomEnd));
     }
 
-    private static List<WallFaceSegment> GetVisibleWallFaces(Map.Map map, int currentPartIndex, Vector2 edgeStart, Vector2 edgeEnd, float currentBottom, float currentTop) {
-
-        var splitPoints = new List<float> { 0f, 1f };
-        var overlaps = new List<EdgeOverlap>();
-        var delta = edgeEnd - edgeStart;
-        var lengthSquared = delta.LengthSquared();
-
-        if (lengthSquared <= float.Epsilon)
-            return [];
-
-        for (var partIndex = 0; partIndex < map.Parts.Count; partIndex++) {
-            
-            var part = map.Parts[partIndex];
-            var vertices = part.Vertices;
-
-            for (var vertexIndex = 0; vertexIndex < vertices.Count; vertexIndex++) {
-
-                if (!Util.TryGetNextVertexIndex(vertices, vertexIndex, out var nextIndex))
-                    continue;
-
-                if (partIndex == currentPartIndex && vertices[vertexIndex] == edgeStart && vertices[nextIndex] == edgeEnd)
-                    continue;
-
-                if (!TryGetOverlap(edgeStart, edgeEnd, vertices[vertexIndex], vertices[nextIndex], lengthSquared, out var overlap))
-                    continue;
-
-                splitPoints.Add(overlap.from);
-                splitPoints.Add(overlap.to);
-                overlaps.Add(new EdgeOverlap(
-                    overlap.from,
-                    overlap.to,
-                    part.YOffset,
-                    part.YOffset + part.Height
-                ));
-            }
-        }
-
-        splitPoints.Sort();
-
-        var faces = new List<WallFaceSegment>();
-
-        for (var i = 0; i < splitPoints.Count - 1; i++) {
-            
-            var from = splitPoints[i];
-            var to = splitPoints[i + 1];
-
-            if (to - from <= 0.0001f)
-                continue;
-
-            var sample = (from + to) * 0.5f;
-            var occluders = overlaps
-                .Where(overlap => overlap.From <= sample && sample <= overlap.To)
-                .Select(overlap => new VerticalRange(
-                    MathF.Max(currentBottom, overlap.Bottom),
-                    MathF.Min(currentTop, overlap.Top)
-                ))
-                .Where(range => range.Top - range.Bottom > 0.0001f)
-                .OrderBy(range => range.Bottom)
-                .ToList();
-
-            faces.AddRange(SubtractVerticalRanges(currentBottom, currentTop, occluders).Select(verticalRange => new WallFaceSegment(from, to, verticalRange.Bottom, verticalRange.Top)));
-        }
-
-        return faces;
-    }
-
-    private static List<VerticalRange> SubtractVerticalRanges(float bottom, float top, List<VerticalRange> cuts) {
-
-        var remaining = new List<VerticalRange> { new(bottom, top) };
-
-        foreach (var cut in cuts) {
-            
-            for (var i = remaining.Count - 1; i >= 0; i--) {
-                
-                var range = remaining[i];
-                var overlapBottom = MathF.Max(range.Bottom, cut.Bottom);
-                var overlapTop = MathF.Min(range.Top, cut.Top);
-
-                if (overlapTop - overlapBottom <= 0.0001f)
-                    continue;
-
-                remaining.RemoveAt(i);
-
-                if (range.Bottom < overlapBottom - 0.0001f)
-                    remaining.Insert(i, new VerticalRange(range.Bottom, overlapBottom));
-
-                if (overlapTop < range.Top - 0.0001f)
-                    remaining.Insert(i + (range.Bottom < overlapBottom - 0.0001f ? 1 : 0), new VerticalRange(overlapTop, range.Top));
-            }
-        }
-
-        return remaining;
-    }
-
-    private static bool TryGetOverlap(Vector2 edgeStart, Vector2 edgeEnd, Vector2 otherStart, Vector2 otherEnd, float lengthSquared, out (float from, float to) overlap) {
-
-        overlap = default;
-
-        const float epsilon = 0.0001f;
-
-        var delta = edgeEnd - edgeStart;
-        var otherDelta = otherEnd - otherStart;
-
-        if (MathF.Abs(Cross(delta, otherDelta)) > epsilon)
-            return false;
-
-        if (MathF.Abs(Cross(delta, otherStart - edgeStart)) > epsilon || MathF.Abs(Cross(delta, otherEnd - edgeStart)) > epsilon)
-            return false;
-
-        var t0 = Vector2.Dot(otherStart - edgeStart, delta) / lengthSquared;
-        var t1 = Vector2.Dot(otherEnd - edgeStart, delta) / lengthSquared;
-        var from = MathF.Max(0f, MathF.Min(t0, t1));
-        var to = MathF.Min(1f, MathF.Max(t0, t1));
-
-        if (to - from <= epsilon)
-            return false;
-
-        overlap = (from, to);
-        return true;
-    }
-
-    private static float Cross(Vector2 a, Vector2 b) => a.X * b.Y - a.Y * b.X;
-
-    private static float GetWallDirection(Map.Map map, int partIndex) {
-
-        var sample = GetInteriorSample(map.Parts[partIndex].Vertices);
-        var isInsideAnotherPart = map.Parts.Where((_, i) => i != partIndex).Any(t => Util.IsPointInPolygon(sample, t.Vertices));
-
-        return isInsideAnotherPart ? -1f : 1f;
-    }
-
-    private static Vector2 GetInteriorSample(List<Vector2> vertices) {
-
-        var tess = Tessellate(vertices);
-
-        if (tess.ElementCount == 0)
-            return vertices[0];
-
-        var a = tess.Vertices[tess.Elements[0]].Position;
-        var b = tess.Vertices[tess.Elements[1]].Position;
-        var c = tess.Vertices[tess.Elements[2]].Position;
-
-        return new Vector2(
-            (a.X + b.X + c.X) / 3f,
-            (a.Y + b.Y + c.Y) / 3f
-        );
-    }
-
-    private static Mesh BuildCeilingMesh(List<Vector2> vertices, float height, float wallDirection, Map.Surface surface) {
+    private static Mesh BuildCeilingMesh(List<Vector2> vertices, float height, float wallDirection, Surface surface) {
 
         var tess = Tessellate(vertices);
         
@@ -367,11 +238,11 @@ public static partial class Render {
         return (min, max);
     }
 
-    private static Vector2 GetHorizontalUv(Vector2 position, (Vector2 min, Vector2 max) bounds, Map.Surface surface) {
+    private static Vector2 GetHorizontalUv(Vector2 position, (Vector2 min, Vector2 max) bounds, Surface surface) {
 
         var uv = surface.Mode switch {
             
-            Heart.Map.TileMode.Local => new Vector2(
+            TileMode.Local => new Vector2(
                 
                 NormalizeToBounds(position.X, bounds.min.X, bounds.max.X),
                 NormalizeToBounds(position.Y, bounds.min.Y, bounds.max.Y)
@@ -383,14 +254,14 @@ public static partial class Render {
         return ApplySurfaceTransform(uv, surface);
     }
 
-    private static Vector2 GetWallUv(Vector2 segmentStart, Vector2 segmentEnd, float bottom, float top, float verticalPosition, Map.Surface surface, bool useEnd = false) {
+    private static Vector2 GetWallUv(Vector2 segmentStart, Vector2 segmentEnd, float bottom, float top, float verticalPosition, Surface surface, bool useEnd = false) {
 
         var horizontalDistance = useEnd ? Vector2.Distance(segmentStart, segmentEnd) : 0f;
         var verticalDistance = top - verticalPosition;
 
         var uv = surface.Mode switch {
             
-            Heart.Map.TileMode.Local => new Vector2(
+            TileMode.Local => new Vector2(
                 
                 NormalizeToBounds(horizontalDistance, 0f, Vector2.Distance(segmentStart, segmentEnd)),
                 NormalizeToBounds(verticalDistance, 0f, top - bottom)
@@ -412,11 +283,11 @@ public static partial class Render {
         return (value - min) / size;
     }
 
-    private static Vector2 ApplySurfaceTransform(Vector2 uv, Map.Surface surface) {
+    private static Vector2 ApplySurfaceTransform(Vector2 uv, Surface surface) {
 
         var tiling = surface.Mode switch {
             
-            Heart.Map.TileMode.Local => new Vector2(
+            TileMode.Local => new Vector2(
                 
                 uv.X * surface.Tiling.X,
                 uv.Y * surface.Tiling.Y
@@ -440,7 +311,7 @@ public static partial class Render {
         return value / tileSize;
     }
 
-    private static Material GetMaterial(Map.Surface surface) =>
+    private static Material GetMaterial(Surface surface) =>
         Materials.GetValueOrDefault(surface.Texture)?.Value ?? (Materials[surface.Texture] = CreateMaterial(surface.Texture)).Value;
 
     private static Lazy<Material> CreateMaterial(string textureName) => new(() => {
@@ -502,8 +373,5 @@ public static partial class Render {
         buffer.Advance(1);
     }
 
-    private readonly record struct EdgeOverlap(float From, float To, float Bottom, float Top);
-    private readonly record struct VerticalRange(float Bottom, float Top);
-    private readonly record struct WallFaceSegment(float From, float To, float Bottom, float Top);
     private readonly record struct VertexData(Vector3 Position, Vector2 Uv, Vector3 Normal);
 }

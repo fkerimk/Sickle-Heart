@@ -7,7 +7,9 @@ namespace Sickle.Heart.Core;
 public static class Util {
 
     public static Vector2 ScreenToWorld(Vector2 pos, Camera2D cam) => GetScreenToWorld2D(pos, cam);
+    public static Ray ScreenToWorld(Vector2 pos, Camera3D cam) => GetScreenToWorldRay(pos, cam);
     
+        
     public static float Distance(Vector2 a, Vector2 b) => Raymath.Vector2Distance(a, b);
     
     public static float Dot(Vector2 a, Vector2 b) => Raymath.Vector2DotProduct(a, b);
